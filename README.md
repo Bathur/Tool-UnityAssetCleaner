@@ -24,4 +24,4 @@ Export unused assets by unitypackage.
 - Delete of judgment, to determine from dependence from BuildSettings and Resources.
 
 # License
-This script is under the MIT License.
+This project is under the MIT License.
