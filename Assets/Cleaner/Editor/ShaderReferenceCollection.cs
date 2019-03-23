@@ -1,12 +1,20 @@
-﻿/**
-	asset cleaner
-	Copyright (c) 2015 Tatsuhiko Yamamura
-
-    This software is released under the MIT License.
-    http://opensource.org/licenses/mit-license.php
+/**
+*asset cleaner
+*Copyright (c) 2015 Tatsuhiko Yamamura
+*
+*This software is released under the MIT License.
+*http://opensource.org/licenses/mit-license.php
 */
-using UnityEngine;
-using System.Collections;
+
+//============================================
+//
+//Modified By Bathur Lu
+//
+//Date:     2019.3.23
+//Website:  http://bathur.cn/
+//
+//============================================
+
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -14,93 +22,104 @@ using UnityEditor;
 
 namespace AssetClean
 {
-	public class ShaderReferenceCollection : IReferenceCollection
-	{
-		// shader name / shader file guid
-		public Dictionary<string, string> shaderFileList = new Dictionary<string, string> ();
-		private List<CollectionData> references = new List<CollectionData>();
+    public class ShaderReferenceCollection
+    {
+        // shader name / shader file guid
+        public Dictionary<string, string> shaderFileList = new Dictionary<string, string>();
+        public Dictionary<string, List<string>> shaderReferenceList = new Dictionary<string, List<string>>();
 
-		public void Init(List<CollectionData> refs){
-			references = refs;
-		}
+        public void Collection()
+        {
+            CollectionShaderFiles();
+            CheckReference();
+        }
 
-		public void CollectionFiles ()
-		{
-			CollectionShaderFiles ();
-			CheckReference ();
-		}
+        void CollectionShaderFiles()
+        {
+            var shaderFiles = Directory.GetFiles("Assets", "*.shader", SearchOption.AllDirectories);
+            foreach (var shaderFilePath in shaderFiles)
+            {
+                var code = File.ReadAllText(shaderFilePath);
+                var match = Regex.Match(code, "Shader \"(?<name>.*)\"");
+                if (match.Success)
+                {
+                    var shaderName = match.Groups["name"].ToString();
+                    //Shaders with the same name will not appear.
+                    if (shaderFileList.ContainsKey(shaderName) == false)
+                    {
+                        shaderFileList.Add(shaderName, AssetDatabase.AssetPathToGUID(shaderFilePath));
+                    }
+                }
+            }
 
-		void CollectionShaderFiles ()
-		{
-			var shaderFiles = Directory.GetFiles ("Assets", "*.shader", SearchOption.AllDirectories);
-			foreach (var shaderFilePath in shaderFiles) {
-				var code = File.ReadAllText (shaderFilePath);
-				var match = Regex.Match (code, "Shader \"(?<name>.*)\"");
-				if (match.Success) {
-					var shaderName = match.Groups ["name"].ToString ();
-					if (shaderFileList.ContainsKey (shaderName) == false) {
-						shaderFileList.Add (shaderName, AssetDatabase.AssetPathToGUID(shaderFilePath));
-					}
-				}
-			}
-		
-			var cgFiles = Directory.GetFiles ("Assets", "*.cg", SearchOption.AllDirectories);
-			foreach (var cgFilePath in cgFiles) {
-				var file = Path.GetFileName (cgFilePath);
-				shaderFileList.Add (file, cgFilePath);
-			}
+            var cgFiles = Directory.GetFiles("Assets", "*.cg", SearchOption.AllDirectories);
 
-			var cgincFiles = Directory.GetFiles ("Assets", "*.cginc", SearchOption.AllDirectories);
-			foreach (var cgincPath in cgincFiles) {
-				var file = Path.GetFileName (cgincPath);
-				if( shaderFileList.ContainsKey(file) == false ){
-					shaderFileList.Add (file, cgincPath);
-				}
-			}
-		}
+            //Files with the same name will cause an error.
+            /*
+            foreach (var cgFilePath in cgFiles)
+            {
+                var file = Path.GetFileName(cgFilePath);
+                shaderFileList.Add(file, cgFilePath);
+            }
+            */
 
-		void CheckReference ()
-		{
-			foreach (var shader in shaderFileList) {
-				var shaderFilePath = AssetDatabase.GUIDToAssetPath(shader.Value);
-				if( File.Exists(shaderFilePath) == false){
-					continue;
-				}
+            //Add an index to the file name to distinguish files with the same name.
+            for (int i = 0; i < cgFiles.Length; i++)
+            {
+                //Asterisk(*) does not appear in the file name.
+                //Use it to distinguish files with the same name.
+                var file = Path.GetFileName(cgFiles[i]) + "*" + i;
+                shaderFileList.Add(file, cgFiles[i]);
+            }
 
-				var guid = shader.Value;
+            var cgincFiles = Directory.GetFiles("Assets", "*.cginc", SearchOption.AllDirectories);
 
-				List<string> referenceList = null;
-				CollectionData reference =  null;
-				
-				if( references.Exists(c=>c.fileGuid == guid) == false ) {
-					referenceList = new List<string>();
-					reference = new CollectionData() {
-						fileGuid = guid,
-						referenceGids = referenceList,
-					};
-					references.Add(reference);
-				}else{
-					reference = references.Find(c=>c.fileGuid == guid);
-					referenceList = reference.referenceGids;
-				}
+            //Files with the same name will cause an error.
+            /*
+            foreach (var cgincPath in cgincFiles)
+            {
+                var file = Path.GetFileName(cgincPath);
+                shaderFileList.Add(file, cgincPath);
+            }
+            */
 
-				reference.timeStamp = File.GetLastWriteTime(AssetDatabase.GUIDToAssetPath(guid));
+            //Add an index to the file name to distinguish files with the same name.
+            for (int i = 0; i < cgincFiles.Length; i++)
+            {
+                //Asterisk(*) does not appear in the file name.
+                //Use it to distinguish files with the same name.
+                var file = Path.GetFileName(cgincFiles[i]) + "*" + i;
+                shaderFileList.Add(file, cgincFiles[i]);
+            }
+        }
 
-				var code = ClassReferenceCollection.StripComment( File.ReadAllText (shaderFilePath));
-			
-				foreach (var checkingShaderName in shaderFileList.Keys) {
-					if( checkingShaderName == shader.Key ){
-						continue;
-					}
+        void CheckReference()
+        {
+            foreach (var shader in shaderFileList)
+            {
+                var shaderFilePath = AssetDatabase.GUIDToAssetPath(shader.Value);
+                //Prevent empty paths.
+                if (shaderFilePath == string.Empty)
+                {
+                    continue;
+                }
+                //Restore file name.
+                var shaderName = shader.Key.Split('*')[0];
 
-					if (code.IndexOf(checkingShaderName) != -1 && shaderFileList.ContainsKey(checkingShaderName))  {
-						var fileGuid = shaderFileList [checkingShaderName];
-						if( referenceList.Contains(fileGuid) == false ){
-							referenceList.Add (fileGuid);
-						}
-					}
-				}
-			}
-		}
-	}
+                List<string> referenceList = new List<string>();
+                shaderReferenceList.Add(shaderName, referenceList);
+
+                var code = File.ReadAllText(shaderFilePath);
+
+                foreach (var checkingShaderName in shaderFileList.Keys)
+                {
+                    if (Regex.IsMatch(code, string.Format("{0}", checkingShaderName)))
+                    {
+                        var filePath = shaderFileList[checkingShaderName];
+                        referenceList.Add(filePath);
+                    }
+                }
+            }
+        }
+    }
 }
